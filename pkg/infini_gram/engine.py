@@ -3,18 +3,22 @@ from typing import Iterable, List, Optional, Tuple, Dict
 
 from .models import *
 from . import cpp_engine
+from . import py_engine
 
 class InfiniGramEngine:
 
-    def __init__(self, index_dir: Iterable[str] | str, eos_token_id: int, vocab_size=65535, version=4, token_dtype='u16',
+    def __init__(self,
+                 s3_names: Iterable[str], index_dir: Iterable[str] | str, eos_token_id: int, vocab_size=65535, version=4, token_dtype='u16',
                  load_to_ram=False, ds_prefetch_depth=0, sa_prefetch_depth=0, od_prefetch_depth=0,
                  bow_ids_path: str = None, attribution_block_size: int = 512, precompute_unigram_logprobs: bool = False,
                  prev_shards_by_index_dir = {},
                  max_support=1000, max_clause_freq=50000, max_diff_tokens=100, maxnum=1, max_disp_len=1000,
+                 read_type: str = 'mmap', # [mmap, s3]
                  ) -> None:
 
         assert sys.byteorder == 'little', 'This code is designed to run on little-endian machines only!'
 
+        assert type(s3_names) == list and all(type(d) == str for d in s3_names)
         if type(index_dir) == str:
             index_dir = [index_dir]
         assert type(index_dir) == list and all(type(d) == str for d in index_dir)
@@ -59,7 +63,13 @@ class InfiniGramEngine:
             engine_class = cpp_engine.Engine_U32
         else:
             raise ValueError(f'Unsupported token dtype: {token_dtype}')
-        self.engine = engine_class(index_dir, eos_token_id, vocab_size, version, load_to_ram, ds_prefetch_depth, sa_prefetch_depth, od_prefetch_depth, bow_ids, attribution_block_size, precompute_unigram_logprobs, prev_shards_by_index_dir)
+
+        if read_type == 'mmap':
+            self.engine = engine_class(index_dir, eos_token_id, vocab_size, version, load_to_ram, ds_prefetch_depth, sa_prefetch_depth, od_prefetch_depth, bow_ids, attribution_block_size, precompute_unigram_logprobs, prev_shards_by_index_dir)
+        elif read_type == 's3':
+            self.engine = py_engine.Engine(token_width=self.token_width, s3_names=s3_names, eos_token_id=eos_token_id, vocab_size=vocab_size, version=version)
+        else:
+            raise ValueError(f'Unsupported read type: {read_type}')
 
     def compute_unigram_counts(self, s: int) -> List[int]:
         return self.engine.compute_unigram_counts(s=s)

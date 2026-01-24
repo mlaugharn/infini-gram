@@ -1,65 +1,75 @@
 [
     {
-        "name": "v4_pileval_llama",
-        "index_dir": "/data-v4-pileval-llama/v4_pileval_llama",
-        "tokenizer": "llama"
-    },
-    {
-        "name": "v4_c4train_llama",
-        "index_dir": "/data-v4-c4train-llama/v4_c4train_llama",
-        "tokenizer": "llama"
-    },
-    {
-        "name": "v4_piletrain_llama",
-        "index_dir": "/data-v4-piletrain-llama/v4_piletrain_llama",
-        "tokenizer": "llama"
-    },
-    {
-        "name": "v4_rpj_llama_s4",
-        "index_dir": "/data-v4-rpj-llama-s4/v4_rpj_llama_s4",
-        "tokenizer": "llama"
-    },
-    {
-        "name": "v4_dolma-v1_6-sample_llama",
-        "index_dir": "/data-v4-dolma-v1_6-sample-llama/v4_dolma-v1_6-sample_llama",
-        "tokenizer": "llama"
-    },
-    {
-        "name": "v4_dolma-v1_7_llama",
-        "index_dir": [
-            "/data-v4-dolma-v1_7-s0-llama/v4_dolma-v1_7-s0_llama",
-            "/data-v4-dolma-v1_7-s1-llama/v4_dolma-v1_7-s1_llama"
+        "name": "v4_olmo-3-32b-think_olmo2",
+        "desc": "OLMo 3 32B Think",
+        "read_type": "s3",
+        "s3_names": [
+            "dolma2-0625-v01/00",
+            "dolma2-0625-v01/01",
+            "dolma2-0625-v01/02",
+            "dolma2-0625-v01/03",
+            "dolma2-0625-v01/04",
+            "dolma2-0625-v01/05",
+            "dolma2-0625-v01/06",
+            "dolma2-0625-v01/07",
+            "dolma2-0625-v01/08",
+            "dolma2-0625-v01/09",
+            "dolma2-0625-v01/10",
+            "dolma2-0625-v01/11",
+            "dolma2-0625-v01/12",
+            "dolma2-0625-v01/13",
+            "dolma2-0625-v01/14",
+            "dolma2-0625-v01/15",
+            "dolma2-0625-v01/16",
+            "dolma2-0625-v01/17",
+            "dolma2-0625-v01/18",
+            "dolma2-0625-v02/19",
+            "dolma2-0625-v02/20",
+            "dolma2-0625-v02/21",
+            "dolma2-0625-v02/22",
+            "dolma2-0625-v02/23",
+            "dolma2-0625-v02/24",
+            "dolma3-dolmino-official-100B",
+            "dolci/Dolci-Think-SFT-32B"
         ],
-        "tokenizer": "llama"
+        "index_dir": [],
+        "tokenizer": "olmo2",
+        "token_dtype": "u32"
     },
     {
-        "name": "v4_dclm-baseline_llama",
-        "index_dir": [
-            "/data-v4-olmoe-mix-0924-dclm-s0-llama/v4_olmoe-mix-0924-dclm-s0_llama",
-            "/data-v4-olmoe-mix-0924-dclm-s1-llama/v4_olmoe-mix-0924-dclm-s1_llama",
-            "/data-v4-olmoe-mix-0924-dclm-s2-llama/v4_olmoe-mix-0924-dclm-s2_llama"
+        "name": "v4_olmo-3-7b-think_olmo2",
+        "desc": "OLMo 3 7B Think",
+        "read_type": "s3",
+        "s3_names": [
+            "dolma2-0625-v01/",
+            "dolma3-dolmino-official-100B",
+            "dolci/Dolci-Think-SFT-7B"
         ],
-        "tokenizer": "llama"
+        "index_dir": [],
+        "tokenizer": "olmo2",
+        "token_dtype": "u32"
     },
     {
-        "name": "v4_olmo-mix-1124_llama",
-        "index_dir": [
-            "/data-v4-olmoe-mix-0924-dclm-s0-llama/v4_olmoe-mix-0924-dclm-s0_llama",
-            "/data-v4-olmoe-mix-0924-dclm-s1-llama/v4_olmoe-mix-0924-dclm-s1_llama",
-            "/data-v4-olmoe-mix-0924-dclm-s2-llama/v4_olmoe-mix-0924-dclm-s2_llama",
-            "/data-v4-olmoe-mix-0924-nodclm-llama/v4_olmoe-mix-0924-nodclm_llama"
+        "name": "v4_olmo-3-7b-instruct_olmo2",
+        "desc": "OLMo 3 7B Instruct",
+        "read_type": "s3",
+        "s3_names": [
+            "dolma2-0625-v01/",
+            "dolma3-dolmino-official-100B",
+            "dolci/Dolci-Instruct-SFT-7B"
         ],
-        "tokenizer": "llama"
-    },
-    {
-        "name": "v4_dolmino-mix-1124-minus-olmo-mix-1124_llama",
-        "index_dir": [
-            "/data-v4-dolmino-mix-1124-minus-olmo-mix-1124-llama/v4_dolminoi-mix-1124-minus-olmo-mix-1124_llama"
-        ],
-        "tokenizer": "llama"
+        "index_dir": [],
+        "tokenizer": "olmo2",
+        "token_dtype": "u32"
     },
     {
         "name": "v4_olmo-2-0325-32b-instruct_llama",
+        "desc": "OLMo 2 32B Instruct (4.6T tokens)",
+        "s3_names": [
+            "v4_olmoe-mix-0924-dclm_llama",
+            "v4_olmoe-mix-0924-nodclm_llama",
+            "v4_olmo-2-0325-32b-anneal-adapt_llama"
+        ],
         "index_dir": [
             "/data-v4-olmoe-mix-0924-dclm-s0-llama/v4_olmoe-mix-0924-dclm-s0_llama",
             "/data-v4-olmoe-mix-0924-dclm-s1-llama/v4_olmoe-mix-0924-dclm-s1_llama",
@@ -71,6 +81,12 @@
     },
     {
         "name": "v4_olmo-2-1124-13b-instruct_llama",
+        "desc": "OLMo 2 13B Instruct (4.6T tokens)",
+        "s3_names": [
+            "v4_olmoe-mix-0924-dclm_llama",
+            "v4_olmoe-mix-0924-nodclm_llama",
+            "v4_olmo-2-1124-13b-anneal-adapt_llama"
+        ],
         "index_dir": [
             "/data-v4-olmoe-mix-0924-dclm-s0-llama/v4_olmoe-mix-0924-dclm-s0_llama",
             "/data-v4-olmoe-mix-0924-dclm-s1-llama/v4_olmoe-mix-0924-dclm-s1_llama",
@@ -82,6 +98,12 @@
     },
     {
         "name": "v4_olmoe-0125-1b-7b-instruct_llama",
+        "desc": "OLMoE 1B 7B Instruct (4.6T tokens)",
+        "s3_names": [
+            "v4_olmoe-mix-0924-dclm_llama",
+            "v4_olmoe-mix-0924-nodclm_llama",
+            "v4_olmoe-0125-1b-7b-anneal-adapt_llama"
+        ],
         "index_dir": [
             "/data-v4-olmoe-mix-0924-dclm-s0-llama/v4_olmoe-mix-0924-dclm-s0_llama",
             "/data-v4-olmoe-mix-0924-dclm-s1-llama/v4_olmoe-mix-0924-dclm-s1_llama",
@@ -89,6 +111,100 @@
             "/data-v4-olmoe-mix-0924-nodclm-llama/v4_olmoe-mix-0924-nodclm_llama",
             "/data-v4-olmoe-0125-1b-7b-anneal-adapt-llama/v4_olmoe-0125-1b-7b-anneal-adapt_llama"
         ],
+        "tokenizer": "llama"
+    },
+    {
+        "name": "v4_dolmino-mix-1124-minus-olmo-mix-1124_llama",
+        "s3_names": [
+            "v4_dolmino-mix-1124-minus-olmo-mix-1124_llama"
+        ],
+        "index_dir": [
+            "/data-v4-dolmino-mix-1124-minus-olmo-mix-1124-llama/v4_dolminoi-mix-1124-minus-olmo-mix-1124_llama"
+        ],
+        "tokenizer": "llama"
+    },
+    {
+        "name": "v4_olmo-mix-1124_llama",
+        "desc": "olmo-mix-1124 (4.6T tokens)",
+        "s3_names": [
+            "v4_olmoe-mix-0924-dclm_llama",
+            "v4_olmoe-mix-0924-nodclm_llama"
+        ],
+        "index_dir": [
+            "/data-v4-olmoe-mix-0924-dclm-s0-llama/v4_olmoe-mix-0924-dclm-s0_llama",
+            "/data-v4-olmoe-mix-0924-dclm-s1-llama/v4_olmoe-mix-0924-dclm-s1_llama",
+            "/data-v4-olmoe-mix-0924-dclm-s2-llama/v4_olmoe-mix-0924-dclm-s2_llama",
+            "/data-v4-olmoe-mix-0924-nodclm-llama/v4_olmoe-mix-0924-nodclm_llama"
+        ],
+        "tokenizer": "llama"
+    },
+    {
+        "name": "v4_dclm-baseline_llama",
+        "desc": "DCLM-baseline (4.3T tokens)",
+        "s3_names": [
+            "v4_olmoe-mix-0924-dclm_llama"
+        ],
+        "index_dir": [
+            "/data-v4-olmoe-mix-0924-dclm-s0-llama/v4_olmoe-mix-0924-dclm-s0_llama",
+            "/data-v4-olmoe-mix-0924-dclm-s1-llama/v4_olmoe-mix-0924-dclm-s1_llama",
+            "/data-v4-olmoe-mix-0924-dclm-s2-llama/v4_olmoe-mix-0924-dclm-s2_llama"
+        ],
+        "tokenizer": "llama"
+    },
+    {
+        "name": "v4_dolma-v1_7_llama",
+        "desc": "Dolma-v1.7 (2.6T tokens)",
+        "s3_names": [
+            "v4_dolma-v1_7_llama"
+        ],
+        "index_dir": [
+            "/data-v4-dolma-v1_7-s0-llama/v4_dolma-v1_7-s0_llama",
+            "/data-v4-dolma-v1_7-s1-llama/v4_dolma-v1_7-s1_llama"
+        ],
+        "tokenizer": "llama"
+    },
+    {
+        "name": "v4_dolma-v1_6-sample_llama",
+        "s3_names": [
+            "v4_dolma-v1_6-sample_llama"
+        ],
+        "index_dir": "/data-v4-dolma-v1_6-sample-llama/v4_dolma-v1_6-sample_llama",
+        "tokenizer": "llama"
+    },
+    {
+        "name": "v4_rpj_llama_s4",
+        "desc": "RedPajama (1.4T tokens)",
+        "s3_names": [
+            "v4_rpj_llama_s4"
+        ],
+        "index_dir": "/data-v4-rpj-llama-s4/v4_rpj_llama_s4",
+        "tokenizer": "llama"
+    },
+    {
+        "name": "v4_piletrain_llama",
+        "desc": "Pile-train (380B tokens)",
+        "s3_names": [
+            "v4_piletrain_llama"
+        ],
+        "index_dir": "/data-v4-piletrain-llama/v4_piletrain_llama",
+        "tokenizer": "llama"
+    },
+    {
+        "name": "v4_c4train_llama",
+        "desc": "C4-train (200B tokens)",
+        "s3_names": [
+            "v4_c4train_llama"
+        ],
+        "index_dir": "/data-v4-c4train-llama/v4_c4train_llama",
+        "tokenizer": "llama"
+    },
+    {
+        "name": "v4_pileval_llama",
+        "desc": "Pile-val (390M tokens)",
+        "s3_names": [
+            "v4_pileval_llama"
+        ],
+        "index_dir": "/data-v4-pileval-llama/v4_pileval_llama",
         "tokenizer": "llama"
     }
 ]
