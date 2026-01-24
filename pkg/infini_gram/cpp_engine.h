@@ -524,7 +524,7 @@ public:
             }
             assert (new_cnt > 0);
             assert (new_cnt <= cnt);
-            subsampling_factor = cnt / new_cnt;
+            subsampling_factor = (double)cnt / new_cnt;
             segment_by_term = new_segment_by_term;
         }
         *out_cnt = cnt;
