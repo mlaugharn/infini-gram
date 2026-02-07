@@ -1,7 +1,8 @@
 import requests
+import os
 
-api_url = 'http://localhost:5000/'
-index = 'v4_pileval_llama'
+api_url = os.environ.get('API_URL', 'http://localhost:5000/')
+index = os.environ.get('API_INDEX', 'v4_pileval_llama')
 
 queries = [
     {'index': index, 'query_type': 'count', 'query': 'natural language processing'},

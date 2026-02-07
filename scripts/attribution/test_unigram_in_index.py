@@ -1,6 +1,7 @@
 from infini_gram.engine import InfiniGramEngine
+import os
 
-INDEX_DIR = '/weka/oe-training-default/jiachengl/index'
+INDEX_DIR = os.environ.get('INDEX_DIR', '/weka/oe-training-default/jiachengl/index')
 # INDEX_DIR = '../index'
 INDEX_NAMES = [
     'v4_pileval_llama',

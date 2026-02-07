@@ -142,7 +142,7 @@ public:
         const vector<string> index_dirs, const T eos_token_id, const T vocab_size, const size_t version,
         const bool load_to_ram, const size_t ds_prefetch_depth, const size_t sa_prefetch_depth, const size_t od_prefetch_depth,
         const set<T> bow_ids, const size_t attribution_block_size, const bool precompute_unigram_logprobs,
-        map<string, vector<DatastoreShard>> prev_shards_by_index_dir)
+        map<string, vector<DatastoreShard>> prev_shards_by_index_dir = {})
         : _eos_token_id(eos_token_id), _vocab_size(vocab_size), _version(version),
           _load_to_ram(load_to_ram), _ds_prefetch_depth(ds_prefetch_depth), _sa_prefetch_depth(sa_prefetch_depth), _od_prefetch_depth(od_prefetch_depth),
           _bow_ids(bow_ids), _attribution_block_size(attribution_block_size),
@@ -366,7 +366,15 @@ public:
         U64 num_bytes = input_ids.size() * sizeof(T);
 
         vector<pair<U64, U64>> segment_by_shard(_num_shards);
+        if (_num_shards == 1) {
+            _find_thread(0, input_buf, num_bytes, hint_segment_by_shard[0], &segment_by_shard[0]);
+            assert (segment_by_shard[0].first <= segment_by_shard[0].second);
+            U64 cnt = segment_by_shard[0].second - segment_by_shard[0].first;
+            return FindResult{ .cnt = cnt, .segment_by_shard = segment_by_shard, };
+        }
+
         vector<thread> threads;
+        threads.reserve(_num_shards);
         for (size_t s = 0; s < _num_shards; s++) {
             threads.emplace_back(&Engine::_find_thread, this, s,
                 input_buf, num_bytes, hint_segment_by_shard[s], &segment_by_shard[s]);
@@ -398,20 +406,21 @@ public:
             return;
         }
 
+        const bool has_find_prefetch = (_ds_prefetch_depth != 0 || _sa_prefetch_depth != 0);
         U64 lo = hint_segment.first, hi = hint_segment.second;
         U64 mi;
         while (lo < hi) {
-            _prefetch_find_2(shard, num_bytes, lo, hi);
+            if (has_find_prefetch) {
+                _prefetch_find_2(shard, num_bytes, lo, hi);
+            }
             mi = (lo + hi - 1) >> 1;
             U64 ptr = _convert_rank_to_ptr(shard, mi);
-            auto o = lexicographical_compare_three_way(
-                shard.ds + ptr, shard.ds + min(ptr + num_bytes, shard.ds_size),
-                input_buf, input_buf + num_bytes);
-            if (o == strong_ordering::less) {
+            int cmp = _compare_suffix_to_query(shard, ptr, input_buf, num_bytes);
+            if (cmp < 0) {
                 lo = mi + 1;
-            } else if (o == strong_ordering::greater) {
+            } else if (cmp > 0) {
                 hi = mi;
-            } else { // o == strong_ordering::equal
+            } else {
                 break;
             }
         }
@@ -424,12 +433,12 @@ public:
         // search left boundary in (lo-1, mi], which should be >= query
         U64 l = lo - 1, r = mi; // l is always < query, r is always >= query
         while (r - l > 1) {
-            _prefetch_find(shard, num_bytes, l, r);
+            if (has_find_prefetch) {
+                _prefetch_find(shard, num_bytes, l, r);
+            }
             U64 m = (l + r) >> 1;
             U64 ptr = _convert_rank_to_ptr(shard, m);
-            bool less = lexicographical_compare(
-                shard.ds + ptr, shard.ds + min(ptr + num_bytes, shard.ds_size),
-                input_buf, input_buf + num_bytes);
+            bool less = _compare_suffix_to_query(shard, ptr, input_buf, num_bytes) < 0;
             if (less) {
                 l = m;
             } else {
@@ -441,12 +450,12 @@ public:
         // search right boundary in (mi, hi], which should be > query
         l = mi, r = hi; // l is always <= query, r is always > query
         while (r - l > 1) {
-            _prefetch_find(shard, num_bytes, l, r);
+            if (has_find_prefetch) {
+                _prefetch_find(shard, num_bytes, l, r);
+            }
             U64 m = (l + r) >> 1;
             U64 ptr = _convert_rank_to_ptr(shard, m);
-            bool less = lexicographical_compare(
-                input_buf, input_buf + num_bytes,
-                shard.ds + ptr, shard.ds + min(ptr + num_bytes, shard.ds_size));
+            bool less = _compare_suffix_to_query(shard, ptr, input_buf, num_bytes) > 0;
             if (less) {
                 r = m;
             } else {
@@ -1793,9 +1802,43 @@ private:
 
     inline U64 _convert_rank_to_ptr(const DatastoreShard &shard, const U64 rank) const {
         assert (rank < shard.tok_cnt);
-        U64 ptr = 0; // need to zero-initialize such that all 8 bytes are filled
-        memcpy(&ptr, shard.sa + rank * shard.ptr_size, shard.ptr_size);
-        return ptr;
+        const U8* const sa_ptr = shard.sa + rank * shard.ptr_size;
+        switch (shard.ptr_size) {
+            case 1: {
+                return sa_ptr[0];
+            }
+            case 2: {
+                U16 ptr = 0;
+                memcpy(&ptr, sa_ptr, sizeof(U16));
+                return ptr;
+            }
+            case 4: {
+                U32 ptr = 0;
+                memcpy(&ptr, sa_ptr, sizeof(U32));
+                return ptr;
+            }
+            case 8: {
+                U64 ptr = 0;
+                memcpy(&ptr, sa_ptr, sizeof(U64));
+                return ptr;
+            }
+            default: {
+                U64 ptr = 0; // need to zero-initialize such that all 8 bytes are filled
+                memcpy(&ptr, sa_ptr, shard.ptr_size);
+                return ptr;
+            }
+        }
+    }
+
+    inline int _compare_suffix_to_query(const DatastoreShard &shard, const U64 ptr, const U8* const input_buf, const U64 num_bytes) const {
+        assert (ptr <= shard.ds_size);
+        const U64 suffix_bytes = shard.ds_size - ptr;
+        const U64 cmp_bytes = min(suffix_bytes, num_bytes);
+        int cmp = memcmp(shard.ds + ptr, input_buf, (size_t)cmp_bytes);
+        if (cmp < 0) return -1;
+        if (cmp > 0) return 1;
+        if (suffix_bytes < num_bytes) return -1;
+        return 0;
     }
 
     inline vector<U64> _convert_ranks_to_ptrs(const DatastoreShard &shard, const U64 rank_start, const U64 rank_end) const {
@@ -1873,7 +1916,7 @@ public:
         const vector<string> index_dirs, const vector<string> index_dirs_diff, const T eos_token_id, const T vocab_size, const size_t version,
         const bool load_to_ram, const size_t ds_prefetch_depth, const size_t sa_prefetch_depth, const size_t od_prefetch_depth,
         const set<T> bow_ids, const size_t attribution_block_size, const bool precompute_unigram_logprobs,
-        map<string, vector<DatastoreShard>> prev_shards_by_index_dir)
+        map<string, vector<DatastoreShard>> prev_shards_by_index_dir = {})
         : Engine<T>(index_dirs, eos_token_id, vocab_size, version, load_to_ram, ds_prefetch_depth, sa_prefetch_depth, od_prefetch_depth, bow_ids, attribution_block_size, precompute_unigram_logprobs, prev_shards_by_index_dir),
           _engine_diff(make_unique<Engine<T>>(index_dirs_diff, eos_token_id, vocab_size, version, load_to_ram, ds_prefetch_depth, sa_prefetch_depth, od_prefetch_depth, bow_ids, attribution_block_size, precompute_unigram_logprobs, prev_shards_by_index_dir)) {}
 
