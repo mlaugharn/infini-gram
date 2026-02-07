@@ -8,7 +8,7 @@ from . import py_engine
 class InfiniGramEngine:
 
     def __init__(self,
-                 s3_names: Iterable[str], index_dir: Iterable[str] | str, eos_token_id: int, vocab_size=65535, version=4, token_dtype='u16',
+                 s3_names: Iterable[str] = (), index_dir: Iterable[str] | str = (), eos_token_id: int = 0, vocab_size=65535, version=4, token_dtype='u16',
                  load_to_ram=False, ds_prefetch_depth=0, sa_prefetch_depth=0, od_prefetch_depth=0,
                  bow_ids_path: str = None, attribution_block_size: int = 512, precompute_unigram_logprobs: bool = False,
                  prev_shards_by_index_dir = {},
@@ -18,9 +18,15 @@ class InfiniGramEngine:
 
         assert sys.byteorder == 'little', 'This code is designed to run on little-endian machines only!'
 
+        if type(s3_names) == str:
+            s3_names = [s3_names]
+        else:
+            s3_names = list(s3_names)
         assert type(s3_names) == list and all(type(d) == str for d in s3_names)
         if type(index_dir) == str:
             index_dir = [index_dir]
+        else:
+            index_dir = list(index_dir)
         assert type(index_dir) == list and all(type(d) == str for d in index_dir)
         assert type(eos_token_id) == int and 0 <= eos_token_id and eos_token_id < vocab_size
         assert type(load_to_ram) == bool
