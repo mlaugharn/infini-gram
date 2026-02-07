@@ -23,6 +23,7 @@ struct BenchConfig {
     size_t queries_per_len = 1500;
     size_t warmup_n = 200;
     size_t batch_size = 32;
+    size_t max_support = 1000;
     size_t runs = 3;
     uint32_t seed = 19260817;
     std::vector<size_t> lengths = {2, 4, 8, 16, 32};
@@ -56,6 +57,7 @@ static void print_usage(const char* argv0) {
         << "  --lengths <csv>        default: 2,4,8,16,32\n"
         << "  --warmup-n <n>         default: 200\n"
         << "  --batch-size <n>       default: 32\n"
+        << "  --max-support <n>      default: 1000\n"
         << "  --runs <n>             default: 3\n"
         << "  --seed <n>             default: 19260817\n";
 }
@@ -130,6 +132,9 @@ static bool parse_args(int argc, char** argv, BenchConfig* cfg) {
         } else if (arg == "--batch-size") {
             const char* v = need_value("--batch-size");
             if (!v || !parse_size_arg(v, &cfg->batch_size)) return false;
+        } else if (arg == "--max-support") {
+            const char* v = need_value("--max-support");
+            if (!v || !parse_size_arg(v, &cfg->max_support)) return false;
         } else if (arg == "--runs") {
             const char* v = need_value("--runs");
             if (!v || !parse_size_arg(v, &cfg->runs)) return false;
@@ -149,8 +154,8 @@ static bool parse_args(int argc, char** argv, BenchConfig* cfg) {
         std::cerr << "--index-dir is required\n";
         return false;
     }
-    if (cfg->queries_per_len == 0 || cfg->batch_size == 0 || cfg->runs == 0) {
-        std::cerr << "queries-per-len, batch-size, and runs must be > 0\n";
+    if (cfg->queries_per_len == 0 || cfg->batch_size == 0 || cfg->max_support == 0 || cfg->runs == 0) {
+        std::cerr << "queries-per-len, batch-size, max-support, and runs must be > 0\n";
         return false;
     }
     return true;
@@ -526,6 +531,158 @@ static OpResult bench_prob_batched_sequence(const Engine<U16>& engine, const std
     return out;
 }
 
+static OpResult bench_ntd_sequence(const Engine<U16>& engine, const std::vector<std::vector<U16>>& queries, size_t max_support) {
+    std::vector<double> lat_us;
+    lat_us.reserve(queries.size());
+    uint64_t checksum = 0;
+    size_t hits = 0;
+
+    auto t_all0 = Clock::now();
+    for (const auto& q : queries) {
+        auto t0 = Clock::now();
+        auto rs = engine.ntd_sequence(q, max_support);
+        auto t1 = Clock::now();
+
+        lat_us.push_back(std::chrono::duration<double, std::micro>(t1 - t0).count());
+        for (const auto& r : rs) {
+            checksum += r.prompt_cnt + r.result_by_token_id.size();
+            if (!r.result_by_token_id.empty()) {
+                checksum += r.result_by_token_id.begin()->second.cont_cnt;
+            }
+            if (r.prompt_cnt > 0) hits++;
+        }
+    }
+    auto t_all1 = Clock::now();
+    double total_ms = std::chrono::duration<double, std::milli>(t_all1 - t_all0).count();
+
+    OpResult out;
+    out.latency_us = summarize(std::move(lat_us));
+    out.total_ms = total_ms;
+    out.qps = static_cast<double>(queries.size()) / (total_ms / 1000.0);
+    out.checksum = checksum;
+    out.num_queries = queries.size();
+    out.num_hits = hits;
+    return out;
+}
+
+static OpResult bench_ntd_batched_sequence(const Engine<U16>& engine, const std::vector<std::vector<U16>>& queries, size_t batch_size, size_t max_support) {
+    std::vector<double> lat_us_per_query;
+    lat_us_per_query.reserve(queries.size());
+    uint64_t checksum = 0;
+    size_t hits = 0;
+
+    auto t_all0 = Clock::now();
+    for (size_t i = 0; i < queries.size(); i += batch_size) {
+        size_t j = std::min(i + batch_size, queries.size());
+        std::vector<std::vector<U16>> batch;
+        batch.reserve(j - i);
+        for (size_t k = i; k < j; k++) batch.push_back(queries[k]);
+
+        auto t0 = Clock::now();
+        auto rss = engine.ntd_batched_sequence(batch, max_support);
+        auto t1 = Clock::now();
+        double per_q_us = std::chrono::duration<double, std::micro>(t1 - t0).count() / static_cast<double>(j - i);
+        for (size_t k = i; k < j; k++) lat_us_per_query.push_back(per_q_us);
+
+        for (const auto& rs : rss) {
+            for (const auto& r : rs) {
+                checksum += r.prompt_cnt + r.result_by_token_id.size();
+                if (!r.result_by_token_id.empty()) {
+                    checksum += r.result_by_token_id.begin()->second.cont_cnt;
+                }
+                if (r.prompt_cnt > 0) hits++;
+            }
+        }
+    }
+    auto t_all1 = Clock::now();
+    double total_ms = std::chrono::duration<double, std::milli>(t_all1 - t_all0).count();
+
+    OpResult out;
+    out.latency_us = summarize(std::move(lat_us_per_query));
+    out.total_ms = total_ms;
+    out.qps = static_cast<double>(queries.size()) / (total_ms / 1000.0);
+    out.checksum = checksum;
+    out.num_queries = queries.size();
+    out.num_hits = hits;
+    return out;
+}
+
+static OpResult bench_infgram_ntd_sequence(const Engine<U16>& engine, const std::vector<std::vector<U16>>& queries, size_t max_support) {
+    std::vector<double> lat_us;
+    lat_us.reserve(queries.size());
+    uint64_t checksum = 0;
+    size_t hits = 0;
+
+    auto t_all0 = Clock::now();
+    for (const auto& q : queries) {
+        auto t0 = Clock::now();
+        auto rs = engine.infgram_ntd_sequence(q, max_support);
+        auto t1 = Clock::now();
+
+        lat_us.push_back(std::chrono::duration<double, std::micro>(t1 - t0).count());
+        for (const auto& r : rs) {
+            checksum += r.prompt_cnt + r.result_by_token_id.size() + r.suffix_len;
+            if (!r.result_by_token_id.empty()) {
+                checksum += r.result_by_token_id.begin()->second.cont_cnt;
+            }
+            if (r.prompt_cnt > 0) hits++;
+        }
+    }
+    auto t_all1 = Clock::now();
+    double total_ms = std::chrono::duration<double, std::milli>(t_all1 - t_all0).count();
+
+    OpResult out;
+    out.latency_us = summarize(std::move(lat_us));
+    out.total_ms = total_ms;
+    out.qps = static_cast<double>(queries.size()) / (total_ms / 1000.0);
+    out.checksum = checksum;
+    out.num_queries = queries.size();
+    out.num_hits = hits;
+    return out;
+}
+
+static OpResult bench_infgram_ntd_batched_sequence(const Engine<U16>& engine, const std::vector<std::vector<U16>>& queries, size_t batch_size, size_t max_support) {
+    std::vector<double> lat_us_per_query;
+    lat_us_per_query.reserve(queries.size());
+    uint64_t checksum = 0;
+    size_t hits = 0;
+
+    auto t_all0 = Clock::now();
+    for (size_t i = 0; i < queries.size(); i += batch_size) {
+        size_t j = std::min(i + batch_size, queries.size());
+        std::vector<std::vector<U16>> batch;
+        batch.reserve(j - i);
+        for (size_t k = i; k < j; k++) batch.push_back(queries[k]);
+
+        auto t0 = Clock::now();
+        auto rss = engine.infgram_ntd_batched_sequence(batch, max_support);
+        auto t1 = Clock::now();
+        double per_q_us = std::chrono::duration<double, std::micro>(t1 - t0).count() / static_cast<double>(j - i);
+        for (size_t k = i; k < j; k++) lat_us_per_query.push_back(per_q_us);
+
+        for (const auto& rs : rss) {
+            for (const auto& r : rs) {
+                checksum += r.prompt_cnt + r.result_by_token_id.size() + r.suffix_len;
+                if (!r.result_by_token_id.empty()) {
+                    checksum += r.result_by_token_id.begin()->second.cont_cnt;
+                }
+                if (r.prompt_cnt > 0) hits++;
+            }
+        }
+    }
+    auto t_all1 = Clock::now();
+    double total_ms = std::chrono::duration<double, std::milli>(t_all1 - t_all0).count();
+
+    OpResult out;
+    out.latency_us = summarize(std::move(lat_us_per_query));
+    out.total_ms = total_ms;
+    out.qps = static_cast<double>(queries.size()) / (total_ms / 1000.0);
+    out.checksum = checksum;
+    out.num_queries = queries.size();
+    out.num_hits = hits;
+    return out;
+}
+
 int main(int argc, char** argv) {
     BenchConfig cfg;
     if (!parse_args(argc, argv, &cfg)) {
@@ -554,6 +711,7 @@ int main(int argc, char** argv) {
               << " lengths=" << join_lengths(cfg.lengths)
               << " warmup_n=" << cfg.warmup_n
               << " batch_size=" << cfg.batch_size
+              << " max_support=" << cfg.max_support
               << " runs=" << cfg.runs
               << " seed=" << cfg.seed
               << " hw_threads=" << std::thread::hardware_concurrency()
@@ -614,6 +772,10 @@ int main(int argc, char** argv) {
             print_op_result(scale, "prob_batched", bench_prob_batched(engine, queries, cfg.batch_size));
             print_op_result(scale, "prob_sequence", bench_prob_sequence(engine, queries));
             print_op_result(scale, "prob_batched_sequence", bench_prob_batched_sequence(engine, queries, cfg.batch_size));
+            print_op_result(scale, "ntd_sequence", bench_ntd_sequence(engine, queries, cfg.max_support));
+            print_op_result(scale, "ntd_batched_sequence", bench_ntd_batched_sequence(engine, queries, cfg.batch_size, cfg.max_support));
+            print_op_result(scale, "infgram_ntd_sequence", bench_infgram_ntd_sequence(engine, queries, cfg.max_support));
+            print_op_result(scale, "infgram_ntd_batched_sequence", bench_infgram_ntd_batched_sequence(engine, queries, cfg.batch_size, cfg.max_support));
         }
     }
 

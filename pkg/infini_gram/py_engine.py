@@ -263,6 +263,61 @@ class Engine:
 
         return [self.prob_sequence(input_ids) for input_ids in input_ids_batch]
 
+    def _ntd_from_prompt_find_result(self, prompt_find_result: FindResult, prompt_len: int, max_support: int) -> DistResult:
+        assert max_support > 0
+        if prompt_find_result.cnt == 0:
+            return DistResult(prompt_cnt=0, result_by_token_id={}, approx=False)
+
+        unit = 1
+        while prompt_find_result.cnt > unit * max_support:
+            unit <<= 1
+        approx = unit > 1
+
+        num_bytes = prompt_len * self.token_width
+        freq_by_token_id: Dict[int, int] = {}
+        for s, (start, end) in enumerate(prompt_find_result.segment_by_shard):
+            rank = start
+            while rank < end:
+                step = min(unit, end - rank)
+                rank_mid = rank + (step // 2)
+                ptr = self._convert_rank_to_ptr(s, rank_mid)
+                token_id = self._convert_ptr_to_token_id(s, ptr + num_bytes)
+                freq_by_token_id[token_id] = freq_by_token_id.get(token_id, 0) + step
+                rank += step
+
+        prompt_cnt = sum(freq_by_token_id.values())
+        assert prompt_cnt == prompt_find_result.cnt
+        result_by_token_id = {
+            token_id: DistTokenResult(cont_cnt=freq, prob=freq / prompt_cnt)
+            for token_id, freq in freq_by_token_id.items()
+        }
+        return DistResult(prompt_cnt=prompt_cnt, result_by_token_id=result_by_token_id, approx=approx)
+
+    def ntd(self, prompt_ids: List[int], max_support: int) -> DistResult:
+
+        prompt_find_result = self.find(prompt_ids)
+        return self._ntd_from_prompt_find_result(prompt_find_result, len(prompt_ids), max_support)
+
+    def ntd_sequence(self, input_ids: List[int], max_support: int) -> List[DistResult]:
+
+        results: List[DistResult] = []
+        if len(input_ids) == 0:
+            return results
+        prefix_ids: List[int] = []
+
+        prompt_find_result = self.find([])
+        for i, cont_id in enumerate(input_ids):
+            results.append(self._ntd_from_prompt_find_result(prompt_find_result, i, max_support))
+            if i + 1 == len(input_ids):
+                continue
+            prefix_ids.append(cont_id)
+            prompt_find_result = self._find(prefix_ids, prompt_find_result.segment_by_shard)
+        return results
+
+    def ntd_batched_sequence(self, input_ids_batch: List[List[int]], max_support: int) -> List[List[DistResult]]:
+
+        return [self.ntd_sequence(input_ids, max_support) for input_ids in input_ids_batch]
+
     def infgram_prob(self, prompt_ids: List[int], cont_id: int) -> InfgramProbResult:
 
         L = len(prompt_ids)
@@ -315,6 +370,54 @@ class Engine:
     def infgram_prob_batched_sequence(self, input_ids_batch: List[List[int]]) -> List[List[InfgramProbResult]]:
 
         return [self.infgram_prob_sequence(input_ids) for input_ids in input_ids_batch]
+
+    def infgram_ntd(self, prompt_ids: List[int], max_support: int) -> InfgramDistResult:
+
+        L = len(prompt_ids)
+        l_lo, l_hi = 0, 1
+
+        while True:
+            if l_hi > L:
+                l_hi = L + 1
+                break
+            prompt_suffix_ids = prompt_ids[L - l_hi:]
+            result = self.find(prompt_suffix_ids)
+            if result.cnt == 0:
+                break
+            l_lo = l_hi
+            l_hi <<= 1
+
+        while l_hi - l_lo > 1:
+            l_mid = (l_lo + l_hi) >> 1
+            prompt_suffix_ids = prompt_ids[L - l_mid:]
+            result = self.find(prompt_suffix_ids)
+            if result.cnt == 0:
+                l_hi = l_mid
+            else:
+                l_lo = l_mid
+
+        suffix_len = l_lo
+        prompt_suffix_ids = prompt_ids[L - suffix_len:]
+        result = self.ntd(prompt_suffix_ids, max_support)
+        return InfgramDistResult(
+            prompt_cnt=result.prompt_cnt,
+            result_by_token_id=result.result_by_token_id,
+            approx=result.approx,
+            suffix_len=suffix_len,
+        )
+
+    def infgram_ntd_sequence(self, input_ids: List[int], max_support: int) -> List[InfgramDistResult]:
+
+        results: List[InfgramDistResult] = []
+        prompt_ids: List[int] = []
+        for cont_id in input_ids:
+            results.append(self.infgram_ntd(prompt_ids, max_support))
+            prompt_ids.append(cont_id)
+        return results
+
+    def infgram_ntd_batched_sequence(self, input_ids_batch: List[List[int]], max_support: int) -> List[List[InfgramDistResult]]:
+
+        return [self.infgram_ntd_sequence(input_ids, max_support) for input_ids in input_ids_batch]
 
     def get_doc_by_rank(self, s: int, rank: int, max_disp_len: int) -> DocResult:
 

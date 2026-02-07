@@ -764,9 +764,8 @@ public:
         return results;
     }
 
-    DistResult<T> ntd(const vector<T> prompt_ids, const U64 max_support) const {
+    DistResult<T> _ntd_with_prompt_find_result(const FindResult& prompt_find_result, const U64 prompt_len, const U64 max_support) const {
 
-        auto prompt_find_result = find(prompt_ids);
         if (prompt_find_result.cnt == 0) {
             return DistResult<T>{ .prompt_cnt = 0, .result_by_token_id = {}, .approx = false, };
         }
@@ -777,13 +776,19 @@ public:
         bool approx = (unit > 1);
 
         vector<map<T, U64>> freq_by_token_id_by_shard(_num_shards);
-        vector<thread> threads;
-        for (size_t s = 0; s < _num_shards; s++) {
-            threads.emplace_back(&Engine::_get_freq_by_token_id_approx, this,
-                s, prompt_ids.size() * sizeof(T), prompt_find_result.segment_by_shard[s], unit, nullptr, nullptr, &freq_by_token_id_by_shard[s]);
-        }
-        for (auto &thread : threads) {
-            thread.join();
+        if (_num_shards == 1) {
+            _get_freq_by_token_id_approx(
+                0, prompt_len * sizeof(T), prompt_find_result.segment_by_shard[0], unit, nullptr, nullptr, &freq_by_token_id_by_shard[0]);
+        } else {
+            vector<thread> threads;
+            threads.reserve(_num_shards);
+            for (size_t s = 0; s < _num_shards; s++) {
+                threads.emplace_back(&Engine::_get_freq_by_token_id_approx, this,
+                    s, prompt_len * sizeof(T), prompt_find_result.segment_by_shard[s], unit, nullptr, nullptr, &freq_by_token_id_by_shard[s]);
+            }
+            for (auto &thread : threads) {
+                thread.join();
+            }
         }
         map<T, U64> freq_by_token_id = {};
         for (size_t s = 0; s < _num_shards; s++) {
@@ -803,6 +808,65 @@ public:
         }
 
         return DistResult<T>{ .prompt_cnt = prompt_cnt, .result_by_token_id = result_by_token_id, .approx = approx, };
+    }
+
+    DistResult<T> ntd(const vector<T> prompt_ids, const U64 max_support) const {
+
+        auto prompt_find_result = find(prompt_ids);
+        return _ntd_with_prompt_find_result(prompt_find_result, prompt_ids.size(), max_support);
+    }
+
+    vector<DistResult<T>> ntd_sequence(const vector<T>& input_ids, const U64 max_support) const {
+
+        vector<DistResult<T>> results;
+        results.reserve(input_ids.size());
+        if (input_ids.empty()) {
+            return results;
+        }
+        vector<T> prefix_ids;
+        prefix_ids.reserve(input_ids.size());
+
+        auto prompt_find_result = find(vector<T>{});
+        for (size_t i = 0; i < input_ids.size(); i++) {
+            results.push_back(_ntd_with_prompt_find_result(prompt_find_result, i, max_support));
+            if (i + 1 == input_ids.size()) {
+                continue;
+            }
+
+            prefix_ids.push_back(input_ids[i]);
+            if (_version == 4) {
+                prompt_find_result = _find(prefix_ids, prompt_find_result.segment_by_shard);
+            } else {
+                assert (_version == 5);
+                prompt_find_result = find(prefix_ids);
+            }
+        }
+        return results;
+    }
+
+    void ntd_sequence_inplace(const vector<T>* const input_ids, const U64 max_support, vector<DistResult<T>>* const thread_output) const {
+        *thread_output = ntd_sequence(*input_ids, max_support);
+    }
+
+    vector<vector<DistResult<T>>> ntd_batched_sequence(const vector<vector<T>>& input_ids_batch, const U64 max_support) const {
+
+        if (input_ids_batch.empty()) {
+            return {};
+        }
+        if (input_ids_batch.size() == 1) {
+            return {ntd_sequence(input_ids_batch[0], max_support)};
+        }
+
+        vector<vector<DistResult<T>>> results(input_ids_batch.size());
+        vector<thread> threads;
+        threads.reserve(input_ids_batch.size());
+        for (size_t i = 0; i < input_ids_batch.size(); i++) {
+            threads.emplace_back(&Engine::ntd_sequence_inplace, this, &input_ids_batch[i], max_support, &results[i]);
+        }
+        for (auto &thread : threads) {
+            thread.join();
+        }
+        return results;
     }
 
     void _get_freq_by_token_id_approx(
@@ -1127,6 +1191,45 @@ public:
             .approx = result.approx,
             .suffix_len = suffix_len,
         };
+    }
+
+    vector<InfgramDistResult<T>> infgram_ntd_sequence(const vector<T>& input_ids, const U64 max_support) const {
+
+        vector<InfgramDistResult<T>> results;
+        results.reserve(input_ids.size());
+        vector<T> prompt_ids;
+        prompt_ids.reserve(input_ids.size());
+
+        for (const auto &cont_id : input_ids) {
+            results.push_back(infgram_ntd(prompt_ids, max_support));
+            prompt_ids.push_back(cont_id);
+        }
+        return results;
+    }
+
+    void infgram_ntd_sequence_inplace(const vector<T>* const input_ids, const U64 max_support, vector<InfgramDistResult<T>>* const thread_output) const {
+        *thread_output = infgram_ntd_sequence(*input_ids, max_support);
+    }
+
+    vector<vector<InfgramDistResult<T>>> infgram_ntd_batched_sequence(const vector<vector<T>>& input_ids_batch, const U64 max_support) const {
+
+        if (input_ids_batch.empty()) {
+            return {};
+        }
+        if (input_ids_batch.size() == 1) {
+            return {infgram_ntd_sequence(input_ids_batch[0], max_support)};
+        }
+
+        vector<vector<InfgramDistResult<T>>> results(input_ids_batch.size());
+        vector<thread> threads;
+        threads.reserve(input_ids_batch.size());
+        for (size_t i = 0; i < input_ids_batch.size(); i++) {
+            threads.emplace_back(&Engine::infgram_ntd_sequence_inplace, this, &input_ids_batch[i], max_support, &results[i]);
+        }
+        for (auto &thread : threads) {
+            thread.join();
+        }
+        return results;
     }
 
     SearchDocsResult<T> search_docs(const vector<T> input_ids, const size_t maxnum, const U64 max_disp_len) const {
