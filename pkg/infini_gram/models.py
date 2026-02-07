@@ -1,6 +1,7 @@
 from typing import Any, Iterable, List, Tuple, TypeAlias, TypeVar, TypedDict
 
 QueryIdsType: TypeAlias = Iterable[int]
+QueryIdsBatchType: TypeAlias = Iterable[QueryIdsType]
 CnfType: TypeAlias = Iterable[Iterable[QueryIdsType]]
 
 class ErrorResponse(TypedDict):
@@ -28,6 +29,9 @@ class ProbResponse(TypedDict):
     cont_cnt: int
     prob: float
 
+ProbSequenceResponse: TypeAlias = List[ProbResponse]
+ProbBatchedSequenceResponse: TypeAlias = List[ProbSequenceResponse]
+
 class DistTokenResult(TypedDict):
     cont_cnt: int
     prob: float
@@ -39,6 +43,9 @@ class NtdResponse(TypedDict):
 
 class InfGramProbResponse(ProbResponse, TypedDict):
     suffix_len: int
+
+InfGramProbSequenceResponse: TypeAlias = List[InfGramProbResponse]
+InfGramProbBatchedSequenceResponse: TypeAlias = List[InfGramProbSequenceResponse]
 
 class InfGramNtdResponse(NtdResponse, TypedDict):
     prompt_cnt: int

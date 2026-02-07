@@ -220,6 +220,102 @@ class Engine:
         find_result = self.find(input_ids)
         return CountResult(count=find_result.cnt, approx=False)
 
+    def prob(self, prompt_ids: List[int], cont_id: int) -> ProbResult:
+
+        prompt_find_result = self.find(prompt_ids)
+        prompt_cnt = prompt_find_result.cnt
+        if prompt_cnt == 0:
+            return ProbResult(prompt_cnt=0, cont_cnt=0, prob=-1.0)
+
+        input_ids = [*prompt_ids, cont_id]
+        cont_find_result = self._find(input_ids, prompt_find_result.segment_by_shard)
+        cont_cnt = cont_find_result.cnt
+        prob = cont_cnt / prompt_cnt
+        return ProbResult(prompt_cnt=prompt_cnt, cont_cnt=cont_cnt, prob=prob)
+
+    def prob_batched(self, prompt_ids_batch: List[List[int]], cont_ids: List[int]) -> List[ProbResult]:
+
+        assert len(prompt_ids_batch) == len(cont_ids)
+        return [self.prob(prompt_ids, cont_id) for prompt_ids, cont_id in zip(prompt_ids_batch, cont_ids)]
+
+    def prob_sequence(self, input_ids: List[int]) -> List[ProbResult]:
+
+        results: List[ProbResult] = []
+        prefix_ids: List[int] = []
+
+        prompt_find_result = self.find([])
+        for cont_id in input_ids:
+            prompt_cnt = prompt_find_result.cnt
+            if prompt_cnt == 0:
+                results.append(ProbResult(prompt_cnt=0, cont_cnt=0, prob=-1.0))
+                prefix_ids.append(cont_id)
+                continue
+
+            prefix_ids.append(cont_id)
+            cont_find_result = self._find(prefix_ids, prompt_find_result.segment_by_shard)
+            cont_cnt = cont_find_result.cnt
+            results.append(ProbResult(prompt_cnt=prompt_cnt, cont_cnt=cont_cnt, prob=cont_cnt / prompt_cnt))
+            prompt_find_result = cont_find_result
+
+        return results
+
+    def prob_batched_sequence(self, input_ids_batch: List[List[int]]) -> List[List[ProbResult]]:
+
+        return [self.prob_sequence(input_ids) for input_ids in input_ids_batch]
+
+    def infgram_prob(self, prompt_ids: List[int], cont_id: int) -> InfgramProbResult:
+
+        L = len(prompt_ids)
+        l_lo, l_hi = 0, 1
+
+        while True:
+            if l_hi > L:
+                l_hi = L + 1
+                break
+            prompt_suffix_ids = prompt_ids[L - l_hi:]
+            result = self.find(prompt_suffix_ids)
+            if result.cnt == 0:
+                break
+            l_lo = l_hi
+            l_hi <<= 1
+
+        while l_hi - l_lo > 1:
+            l_mid = (l_lo + l_hi) >> 1
+            prompt_suffix_ids = prompt_ids[L - l_mid:]
+            result = self.find(prompt_suffix_ids)
+            if result.cnt == 0:
+                l_hi = l_mid
+            else:
+                l_lo = l_mid
+
+        suffix_len = l_lo
+        prompt_suffix_ids = prompt_ids[L - suffix_len:]
+        result = self.prob(prompt_suffix_ids, cont_id)
+        return InfgramProbResult(
+            prompt_cnt=result.prompt_cnt,
+            cont_cnt=result.cont_cnt,
+            prob=result.prob,
+            suffix_len=suffix_len,
+        )
+
+    def infgram_prob_batched(self, prompt_ids_batch: List[List[int]], cont_ids: List[int]) -> List[InfgramProbResult]:
+
+        assert len(prompt_ids_batch) == len(cont_ids)
+        return [self.infgram_prob(prompt_ids, cont_id) for prompt_ids, cont_id in zip(prompt_ids_batch, cont_ids)]
+
+    def infgram_prob_sequence(self, input_ids: List[int]) -> List[InfgramProbResult]:
+
+        results: List[InfgramProbResult] = []
+        prompt_ids: List[int] = []
+        for cont_id in input_ids:
+            results.append(self.infgram_prob(prompt_ids, cont_id))
+            prompt_ids.append(cont_id)
+        return results
+
+    def infgram_prob_batched_sequence(self, input_ids_batch: List[List[int]]) -> List[List[InfgramProbResult]]:
+
+        return [self.infgram_prob_sequence(input_ids) for input_ids in input_ids_batch]
+
     def get_doc_by_rank(self, s: int, rank: int, max_disp_len: int) -> DocResult:
 
         assert 0 <= s < self.num_shards

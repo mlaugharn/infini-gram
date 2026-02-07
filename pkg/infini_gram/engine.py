@@ -85,6 +85,14 @@ class InfiniGramEngine:
                 return False
         return True
 
+    def check_query_ids_batch(self, query_ids_batch: QueryIdsBatchType, allow_empty: bool) -> bool:
+        if not (type(query_ids_batch) == list and (allow_empty or len(query_ids_batch) > 0)):
+            return False
+        for query_ids in query_ids_batch:
+            if not self.check_query_ids(query_ids, allow_empty=True):
+                return False
+        return True
+
     def check_cnf(self, cnf: CnfType) -> bool:
         if not (type(cnf) == list and len(cnf) > 0):
             return False
@@ -147,6 +155,28 @@ class InfiniGramEngine:
         result = self.engine.prob(prompt_ids=prompt_ids, cont_id=cont_id)
         return {'prompt_cnt': result.prompt_cnt, 'cont_cnt': result.cont_cnt, 'prob': result.prob}
 
+    def prob_batched(self, prompt_ids_batch: QueryIdsBatchType, cont_ids: QueryIdsType) -> InfiniGramEngineResponse[List[ProbResponse]]:
+        if not self.check_query_ids_batch(prompt_ids_batch, allow_empty=True):
+            return {'error': f'prompt_ids_batch must be a list of lists of integers in range [0, {self.token_id_max}]'}
+        if not self.check_query_ids(cont_ids, allow_empty=True):
+            return {'error': f'cont_ids must be a list of integers in range [0, {self.token_id_max}]'}
+        if len(prompt_ids_batch) != len(cont_ids):
+            return {'error': 'prompt_ids_batch and cont_ids must have the same length'}
+        results = self.engine.prob_batched(prompt_ids_batch=prompt_ids_batch, cont_ids=cont_ids)
+        return [{'prompt_cnt': result.prompt_cnt, 'cont_cnt': result.cont_cnt, 'prob': result.prob} for result in results]
+
+    def prob_sequence(self, input_ids: QueryIdsType) -> InfiniGramEngineResponse[ProbSequenceResponse]:
+        if not self.check_query_ids(input_ids, allow_empty=True):
+            return {'error': f'input_ids must be a list of integers in range [0, {self.token_id_max}]'}
+        results = self.engine.prob_sequence(input_ids=input_ids)
+        return [{'prompt_cnt': result.prompt_cnt, 'cont_cnt': result.cont_cnt, 'prob': result.prob} for result in results]
+
+    def prob_batched_sequence(self, input_ids_batch: QueryIdsBatchType) -> InfiniGramEngineResponse[ProbBatchedSequenceResponse]:
+        if not self.check_query_ids_batch(input_ids_batch, allow_empty=True):
+            return {'error': f'input_ids_batch must be a list of lists of integers in range [0, {self.token_id_max}]'}
+        resultss = self.engine.prob_batched_sequence(input_ids_batch=input_ids_batch)
+        return [[{'prompt_cnt': result.prompt_cnt, 'cont_cnt': result.cont_cnt, 'prob': result.prob} for result in results] for results in resultss]
+
     def ntd(self, prompt_ids: QueryIdsType, max_support: Optional[int]=None) -> InfiniGramEngineResponse[NtdResponse] :
         if max_support is None:
             max_support = self.max_support
@@ -165,6 +195,28 @@ class InfiniGramEngine:
             return {'error': f'cont_id must be an integer in range [0, {self.token_id_max}]'}
         result = self.engine.infgram_prob(prompt_ids=prompt_ids, cont_id=cont_id)
         return {'prompt_cnt': result.prompt_cnt, 'cont_cnt': result.cont_cnt, 'prob': result.prob, 'suffix_len': result.suffix_len}
+
+    def infgram_prob_batched(self, prompt_ids_batch: QueryIdsBatchType, cont_ids: QueryIdsType) -> InfiniGramEngineResponse[List[InfGramProbResponse]]:
+        if not self.check_query_ids_batch(prompt_ids_batch, allow_empty=True):
+            return {'error': f'prompt_ids_batch must be a list of lists of integers in range [0, {self.token_id_max}]'}
+        if not self.check_query_ids(cont_ids, allow_empty=True):
+            return {'error': f'cont_ids must be a list of integers in range [0, {self.token_id_max}]'}
+        if len(prompt_ids_batch) != len(cont_ids):
+            return {'error': 'prompt_ids_batch and cont_ids must have the same length'}
+        results = self.engine.infgram_prob_batched(prompt_ids_batch=prompt_ids_batch, cont_ids=cont_ids)
+        return [{'prompt_cnt': result.prompt_cnt, 'cont_cnt': result.cont_cnt, 'prob': result.prob, 'suffix_len': result.suffix_len} for result in results]
+
+    def infgram_prob_sequence(self, input_ids: QueryIdsType) -> InfiniGramEngineResponse[InfGramProbSequenceResponse]:
+        if not self.check_query_ids(input_ids, allow_empty=True):
+            return {'error': f'input_ids must be a list of integers in range [0, {self.token_id_max}]'}
+        results = self.engine.infgram_prob_sequence(input_ids=input_ids)
+        return [{'prompt_cnt': result.prompt_cnt, 'cont_cnt': result.cont_cnt, 'prob': result.prob, 'suffix_len': result.suffix_len} for result in results]
+
+    def infgram_prob_batched_sequence(self, input_ids_batch: QueryIdsBatchType) -> InfiniGramEngineResponse[InfGramProbBatchedSequenceResponse]:
+        if not self.check_query_ids_batch(input_ids_batch, allow_empty=True):
+            return {'error': f'input_ids_batch must be a list of lists of integers in range [0, {self.token_id_max}]'}
+        resultss = self.engine.infgram_prob_batched_sequence(input_ids_batch=input_ids_batch)
+        return [[{'prompt_cnt': result.prompt_cnt, 'cont_cnt': result.cont_cnt, 'prob': result.prob, 'suffix_len': result.suffix_len} for result in results] for results in resultss]
 
     def infgram_ntd(self, prompt_ids: QueryIdsType, max_support: Optional[int] = None) -> InfiniGramEngineResponse[InfGramNtdResponse]:
         if max_support is None:
