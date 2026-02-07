@@ -131,6 +131,30 @@ def _assert_infgram_prob_seq_equal(engine, seq: list[int], label: str = "") -> N
         )
 
 
+def _assert_ntd_seq_equal(engine, seq: list[int], max_support: int, label: str = "") -> None:
+    """ntd_sequence must match the loop-based reference."""
+    seq_results = engine.ntd_sequence(seq, max_support=max_support)
+    for i in range(len(seq)):
+        expected = engine.ntd(prompt_ids=seq[:i], max_support=max_support)
+        actual = seq_results[i]
+        assert actual == expected, (
+            f"ntd mismatch [{label}] at position {i}/{len(seq)}: "
+            f"expected {expected}, got {actual}"
+        )
+
+
+def _assert_infgram_ntd_seq_equal(engine, seq: list[int], max_support: int, label: str = "") -> None:
+    """infgram_ntd_sequence must match the loop-based reference."""
+    seq_results = engine.infgram_ntd_sequence(seq, max_support=max_support)
+    for i in range(len(seq)):
+        expected = engine.infgram_ntd(prompt_ids=seq[:i], max_support=max_support)
+        actual = seq_results[i]
+        assert actual == expected, (
+            f"infgram_ntd mismatch [{label}] at position {i}/{len(seq)}: "
+            f"expected {expected}, got {actual}"
+        )
+
+
 def _assert_cross_validate_position_zero(engine, seq: list[int], label: str = "") -> None:
     """At position 0, prob and infgram_prob must agree (empty context)."""
     if len(seq) == 0:
@@ -223,9 +247,15 @@ def _assert_suffix_len_valid(engine, seq: list[int], label: str = "",
 # ---------------------------------------------------------------------------
 
 def _test_edge_cases(engine) -> None:
+    max_support = engine.max_support
+
     print("  edge cases: empty sequence")
     assert engine.prob_sequence([]) == [], "prob_sequence([]) should return []"
     assert engine.infgram_prob_sequence([]) == [], "infgram_prob_sequence([]) should return []"
+    assert engine.ntd_sequence([], max_support=max_support) == [], "ntd_sequence([]) should return []"
+    assert engine.infgram_ntd_sequence([], max_support=max_support) == [], (
+        "infgram_ntd_sequence([]) should return []"
+    )
 
     print("  edge cases: single token")
     tok = min(1, engine.token_id_max)
@@ -241,23 +271,49 @@ def _test_edge_cases(engine) -> None:
     assert single_inf[0] == single_inf_ref, (
         f"single-token infgram mismatch: {single_inf[0]} != {single_inf_ref}"
     )
+    single_ntd = engine.ntd_sequence([tok], max_support=max_support)
+    single_ntd_ref = engine.ntd(prompt_ids=[], max_support=max_support)
+    assert len(single_ntd) == 1, f"ntd_sequence([{tok}]) should return 1 result"
+    assert single_ntd[0] == single_ntd_ref, (
+        f"single-token ntd mismatch: {single_ntd[0]} != {single_ntd_ref}"
+    )
+    single_inf_ntd = engine.infgram_ntd_sequence([tok], max_support=max_support)
+    single_inf_ntd_ref = engine.infgram_ntd(prompt_ids=[], max_support=max_support)
+    assert len(single_inf_ntd) == 1, f"infgram_ntd_sequence([{tok}]) should return 1 result"
+    assert single_inf_ntd[0] == single_inf_ntd_ref, (
+        f"single-token infgram_ntd mismatch: {single_inf_ntd[0]} != {single_inf_ntd_ref}"
+    )
 
     print("  edge cases: two tokens")
     tok2 = min(2, engine.token_id_max)
     seq2 = [tok, tok2]
     _assert_prob_seq_equal(engine, seq2, label="two-token")
     _assert_infgram_prob_seq_equal(engine, seq2, label="two-token")
+    _assert_ntd_seq_equal(engine, seq2, max_support=max_support, label="two-token")
+    _assert_infgram_ntd_seq_equal(engine, seq2, max_support=max_support, label="two-token")
 
     print("  edge cases: batched([]) and batched([[]])")
     assert engine.prob_batched_sequence([]) == [], "prob_batched_sequence([]) should return []"
     assert engine.infgram_prob_batched_sequence([]) == [], (
         "infgram_prob_batched_sequence([]) should return []"
     )
+    assert engine.ntd_batched_sequence([], max_support=max_support) == [], (
+        "ntd_batched_sequence([]) should return []"
+    )
+    assert engine.infgram_ntd_batched_sequence([], max_support=max_support) == [], (
+        "infgram_ntd_batched_sequence([]) should return []"
+    )
     assert engine.prob_batched_sequence([[]]) == [[]], (
         "prob_batched_sequence([[]]) should return [[]]"
     )
     assert engine.infgram_prob_batched_sequence([[]]) == [[]], (
         "infgram_prob_batched_sequence([[]]) should return [[]]"
+    )
+    assert engine.ntd_batched_sequence([[]], max_support=max_support) == [[]], (
+        "ntd_batched_sequence([[]]) should return [[]]"
+    )
+    assert engine.infgram_ntd_batched_sequence([[]], max_support=max_support) == [[]], (
+        "infgram_ntd_batched_sequence([[]]) should return [[]]"
     )
 
 
@@ -267,10 +323,13 @@ def _test_edge_cases(engine) -> None:
 
 def _test_error_handling(engine) -> None:
     print("  error handling: invalid inputs")
+    max_support = engine.max_support
 
     for name, fn in [
         ("prob_sequence", engine.prob_sequence),
         ("infgram_prob_sequence", engine.infgram_prob_sequence),
+        ("ntd_sequence", lambda x: engine.ntd_sequence(x, max_support=max_support)),
+        ("infgram_ntd_sequence", lambda x: engine.infgram_ntd_sequence(x, max_support=max_support)),
     ]:
         result = fn("not a list")
         assert isinstance(result, dict) and 'error' in result, (
@@ -284,6 +343,8 @@ def _test_error_handling(engine) -> None:
     for name, fn in [
         ("prob_batched_sequence", engine.prob_batched_sequence),
         ("infgram_prob_batched_sequence", engine.infgram_prob_batched_sequence),
+        ("ntd_batched_sequence", lambda x: engine.ntd_batched_sequence(x, max_support=max_support)),
+        ("infgram_ntd_batched_sequence", lambda x: engine.infgram_ntd_batched_sequence(x, max_support=max_support)),
     ]:
         result = fn([[-1]])
         assert isinstance(result, dict) and 'error' in result, (
@@ -297,6 +358,8 @@ def _test_error_handling(engine) -> None:
 
 def _assert_batched_equal(engine, batch: list[list[int]], label: str = "") -> None:
     """batched(batch) must equal [sequence(s) for s in batch]."""
+    max_support = engine.max_support
+
     prob_batched = engine.prob_batched_sequence(batch)
     prob_individual = [engine.prob_sequence(s) for s in batch]
     for batch_idx, (actual, expected) in enumerate(zip(prob_batched, prob_individual)):
@@ -312,6 +375,24 @@ def _assert_batched_equal(engine, batch: list[list[int]], label: str = "") -> No
         for pos, (a, e) in enumerate(zip(actual, expected)):
             assert a == e, (
                 f"infgram_batched mismatch [{label}] batch_item={batch_idx} pos={pos}: "
+                f"expected {e}, got {a}"
+            )
+
+    ntd_batched = engine.ntd_batched_sequence(batch, max_support=max_support)
+    ntd_individual = [engine.ntd_sequence(s, max_support=max_support) for s in batch]
+    for batch_idx, (actual, expected) in enumerate(zip(ntd_batched, ntd_individual)):
+        for pos, (a, e) in enumerate(zip(actual, expected)):
+            assert a == e, (
+                f"ntd_batched mismatch [{label}] batch_item={batch_idx} pos={pos}: "
+                f"expected {e}, got {a}"
+            )
+
+    inf_ntd_batched = engine.infgram_ntd_batched_sequence(batch, max_support=max_support)
+    inf_ntd_individual = [engine.infgram_ntd_sequence(s, max_support=max_support) for s in batch]
+    for batch_idx, (actual, expected) in enumerate(zip(inf_ntd_batched, inf_ntd_individual)):
+        for pos, (a, e) in enumerate(zip(actual, expected)):
+            assert a == e, (
+                f"infgram_ntd_batched mismatch [{label}] batch_item={batch_idx} pos={pos}: "
                 f"expected {e}, got {a}"
             )
 
@@ -462,10 +543,13 @@ def main() -> None:
     # A. Fixed sequence correctness
     # -----------------------------------------------------------------------
     print("=== Fixed sequence correctness ===")
+    max_support = engine.max_support
     for label, seq in [("diverse", diverse_seq), ("repeat", repeat_seq), ("corpus", corpus_seq)]:
         print(f"  {label} (len={len(seq)})")
         _assert_prob_seq_equal(engine, seq, label=label)
         _assert_infgram_prob_seq_equal(engine, seq, label=label)
+        _assert_ntd_seq_equal(engine, seq, max_support=max_support, label=label)
+        _assert_infgram_ntd_seq_equal(engine, seq, max_support=max_support, label=label)
         _assert_cross_validate_position_zero(engine, seq, label=label)
     print("  PASSED")
 
@@ -477,6 +561,8 @@ def main() -> None:
     print(f"  zero_seq len={len(zero_seq)}, first_zero_pos={first_zero_pos}")
     _assert_prob_seq_equal(engine, zero_seq, label="zero_count")
     _assert_infgram_prob_seq_equal(engine, zero_seq, label="zero_count")
+    _assert_ntd_seq_equal(engine, zero_seq, max_support=max_support, label="zero_count")
+    _assert_infgram_ntd_seq_equal(engine, zero_seq, max_support=max_support, label="zero_count")
     _assert_zero_count_behavior(engine, zero_seq, first_zero_pos)
     print("  PASSED")
 
@@ -572,6 +658,10 @@ def main() -> None:
     prob_seq = lambda s: engine.prob_sequence(s)
     inf_loop = lambda s: [engine.infgram_prob(prompt_ids=s[:i], cont_id=s[i]) for i in range(len(s))]
     inf_seq = lambda s: engine.infgram_prob_sequence(s)
+    ntd_loop = lambda s: [engine.ntd(prompt_ids=s[:i], max_support=max_support) for i in range(len(s))]
+    ntd_seq = lambda s: engine.ntd_sequence(s, max_support=max_support)
+    inf_ntd_loop = lambda s: [engine.infgram_ntd(prompt_ids=s[:i], max_support=max_support) for i in range(len(s))]
+    inf_ntd_seq = lambda s: engine.infgram_ntd_sequence(s, max_support=max_support)
 
     for label, seq in [("diverse", diverse_seq), ("corpus", corpus_seq)]:
         print(f"\n  {label} (len={len(seq)}):")
@@ -579,10 +669,18 @@ def main() -> None:
         ps_mean, ps_sd = _bench(lambda s=seq: prob_seq(s), args.reps)
         il_mean, il_sd = _bench(lambda s=seq: inf_loop(s), args.reps)
         is_mean, is_sd = _bench(lambda s=seq: inf_seq(s), args.reps)
+        nl_mean, nl_sd = _bench(lambda s=seq: ntd_loop(s), args.reps)
+        ns_mean, ns_sd = _bench(lambda s=seq: ntd_seq(s), args.reps)
+        inl_mean, inl_sd = _bench(lambda s=seq: inf_ntd_loop(s), args.reps)
+        ins_mean, ins_sd = _bench(lambda s=seq: inf_ntd_seq(s), args.reps)
         print(f"    prob loop:     {pl_mean:10.3f} ms (sd {pl_sd:.3f})")
         print(f"    prob sequence: {ps_mean:10.3f} ms (sd {ps_sd:.3f})  speedup={pl_mean / ps_mean:.1f}x")
         print(f"    infgram loop:     {il_mean:10.3f} ms (sd {il_sd:.3f})")
         print(f"    infgram sequence: {is_mean:10.3f} ms (sd {is_sd:.3f})  speedup={il_mean / is_mean:.1f}x")
+        print(f"    ntd loop:      {nl_mean:10.3f} ms (sd {nl_sd:.3f})")
+        print(f"    ntd sequence:  {ns_mean:10.3f} ms (sd {ns_sd:.3f})  speedup={nl_mean / ns_mean:.1f}x")
+        print(f"    infgram ntd loop:     {inl_mean:10.3f} ms (sd {inl_sd:.3f})")
+        print(f"    infgram ntd sequence: {ins_mean:10.3f} ms (sd {ins_sd:.3f})  speedup={inl_mean / ins_mean:.1f}x")
 
     # Benchmark the largest stress sequences from Tier 2
     if stress_seqs:

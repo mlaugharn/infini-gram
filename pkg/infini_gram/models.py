@@ -41,6 +41,9 @@ class NtdResponse(TypedDict):
     result_by_token_id: dict[int, DistTokenResult]
     approx: bool
 
+NtdSequenceResponse: TypeAlias = List[NtdResponse]
+NtdBatchedSequenceResponse: TypeAlias = List[NtdSequenceResponse]
+
 class InfGramProbResponse(ProbResponse, TypedDict):
     suffix_len: int
 
@@ -52,6 +55,9 @@ class InfGramNtdResponse(NtdResponse, TypedDict):
     result_by_token_id: dict[int, DistTokenResult]
     approx: bool
     suffix_len: int
+
+InfGramNtdSequenceResponse: TypeAlias = List[InfGramNtdResponse]
+InfGramNtdBatchedSequenceResponse: TypeAlias = List[InfGramNtdSequenceResponse]
 
 class DocResult(TypedDict):
     doc_ix: int

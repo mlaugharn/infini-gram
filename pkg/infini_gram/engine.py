@@ -194,6 +194,43 @@ class InfiniGramEngine:
         result_by_token_id: dict[int, DistTokenResult] = {token_id: {'cont_cnt': r.cont_cnt, 'prob': r.prob} for token_id, r in result.result_by_token_id.items()}
         return {'prompt_cnt': result.prompt_cnt, 'result_by_token_id': result_by_token_id, 'approx': result.approx}
 
+    def ntd_sequence(self, input_ids: QueryIdsType, max_support: Optional[int] = None) -> InfiniGramEngineResponse[NtdSequenceResponse]:
+        if max_support is None:
+            max_support = self.max_support
+        if not (type(max_support) == int and max_support > 0):
+            return {'error': 'max_support must be a positive integer'}
+        if not self.check_query_ids(input_ids, allow_empty=True):
+            return {'error': f'input_ids must be a list of integers in range [0, {self.token_id_max}]'}
+        results = self.engine.ntd_sequence(input_ids=input_ids, max_support=max_support)
+        return [
+            {
+                'prompt_cnt': result.prompt_cnt,
+                'result_by_token_id': {token_id: {'cont_cnt': r.cont_cnt, 'prob': r.prob} for token_id, r in result.result_by_token_id.items()},
+                'approx': result.approx,
+            }
+            for result in results
+        ]
+
+    def ntd_batched_sequence(self, input_ids_batch: QueryIdsBatchType, max_support: Optional[int] = None) -> InfiniGramEngineResponse[NtdBatchedSequenceResponse]:
+        if max_support is None:
+            max_support = self.max_support
+        if not (type(max_support) == int and max_support > 0):
+            return {'error': 'max_support must be a positive integer'}
+        if not self.check_query_ids_batch(input_ids_batch, allow_empty=True):
+            return {'error': f'input_ids_batch must be a list of lists of integers in range [0, {self.token_id_max}]'}
+        resultss = self.engine.ntd_batched_sequence(input_ids_batch=input_ids_batch, max_support=max_support)
+        return [
+            [
+                {
+                    'prompt_cnt': result.prompt_cnt,
+                    'result_by_token_id': {token_id: {'cont_cnt': r.cont_cnt, 'prob': r.prob} for token_id, r in result.result_by_token_id.items()},
+                    'approx': result.approx,
+                }
+                for result in results
+            ]
+            for results in resultss
+        ]
+
     def infgram_prob(self, prompt_ids: QueryIdsType, cont_id: int) -> InfiniGramEngineResponse[InfGramProbResponse]:
         if not self.check_query_ids(prompt_ids, allow_empty=True):
             return {'error': f'prompt_ids must be a non-empty list of integers in range [0, {self.token_id_max}]'}
@@ -234,6 +271,45 @@ class InfiniGramEngine:
         result = self.engine.infgram_ntd(prompt_ids=prompt_ids, max_support=max_support)
         result_by_token_id:  dict[int, DistTokenResult] = {token_id: {'cont_cnt': r.cont_cnt, 'prob': r.prob} for token_id, r in result.result_by_token_id.items()}
         return {'prompt_cnt': result.prompt_cnt, 'result_by_token_id': result_by_token_id, 'approx': result.approx, 'suffix_len': result.suffix_len}
+
+    def infgram_ntd_sequence(self, input_ids: QueryIdsType, max_support: Optional[int] = None) -> InfiniGramEngineResponse[InfGramNtdSequenceResponse]:
+        if max_support is None:
+            max_support = self.max_support
+        if not (type(max_support) == int and max_support > 0):
+            return {'error': 'max_support must be a positive integer'}
+        if not self.check_query_ids(input_ids, allow_empty=True):
+            return {'error': f'input_ids must be a list of integers in range [0, {self.token_id_max}]'}
+        results = self.engine.infgram_ntd_sequence(input_ids=input_ids, max_support=max_support)
+        return [
+            {
+                'prompt_cnt': result.prompt_cnt,
+                'result_by_token_id': {token_id: {'cont_cnt': r.cont_cnt, 'prob': r.prob} for token_id, r in result.result_by_token_id.items()},
+                'approx': result.approx,
+                'suffix_len': result.suffix_len,
+            }
+            for result in results
+        ]
+
+    def infgram_ntd_batched_sequence(self, input_ids_batch: QueryIdsBatchType, max_support: Optional[int] = None) -> InfiniGramEngineResponse[InfGramNtdBatchedSequenceResponse]:
+        if max_support is None:
+            max_support = self.max_support
+        if not (type(max_support) == int and max_support > 0):
+            return {'error': 'max_support must be a positive integer'}
+        if not self.check_query_ids_batch(input_ids_batch, allow_empty=True):
+            return {'error': f'input_ids_batch must be a list of lists of integers in range [0, {self.token_id_max}]'}
+        resultss = self.engine.infgram_ntd_batched_sequence(input_ids_batch=input_ids_batch, max_support=max_support)
+        return [
+            [
+                {
+                    'prompt_cnt': result.prompt_cnt,
+                    'result_by_token_id': {token_id: {'cont_cnt': r.cont_cnt, 'prob': r.prob} for token_id, r in result.result_by_token_id.items()},
+                    'approx': result.approx,
+                    'suffix_len': result.suffix_len,
+                }
+                for result in results
+            ]
+            for results in resultss
+        ]
 
     def search_docs(self, input_ids: QueryIdsType, maxnum: Optional[int] = None, max_disp_len: Optional[int] = None) -> InfiniGramEngineResponse[SearchDocsResponse]:
         if maxnum is None:
