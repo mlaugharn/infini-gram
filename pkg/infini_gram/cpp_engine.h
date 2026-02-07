@@ -5,6 +5,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <filesystem>
 #include <sys/mman.h> // for mmap, munmap
@@ -12,6 +13,7 @@
 #include <fcntl.h> // for O_RDONLY
 #include <unistd.h> // for close
 #include <algorithm>
+#include <functional>
 #include <random>
 #include <thread>
 #include <fstream>
@@ -684,6 +686,75 @@ public:
         return ProbResult{ .prompt_cnt = prompt_cnt, .cont_cnt = cont_cnt, .prob = prob };
     }
 
+    void prob_inplace(const vector<T>* const prompt_ids, const T cont_id, ProbResult* const thread_output) const {
+        *thread_output = prob(*prompt_ids, cont_id);
+    }
+
+    vector<ProbResult> prob_batched(const vector<vector<T>>& prompt_ids_batch, const vector<T>& cont_ids) const {
+
+        assert (prompt_ids_batch.size() == cont_ids.size());
+
+        vector<ProbResult> results(prompt_ids_batch.size());
+        vector<thread> threads;
+        threads.reserve(prompt_ids_batch.size());
+        for (size_t i = 0; i < prompt_ids_batch.size(); i++) {
+            threads.emplace_back(&Engine::prob_inplace, this, &prompt_ids_batch[i], cont_ids[i], &results[i]);
+        }
+        for (auto &thread : threads) {
+            thread.join();
+        }
+        return results;
+    }
+
+    vector<ProbResult> prob_sequence(const vector<T>& input_ids) const {
+
+        vector<ProbResult> results;
+        results.reserve(input_ids.size());
+        vector<T> prefix_ids;
+        prefix_ids.reserve(input_ids.size());
+
+        auto prompt_find_result = find(vector<T>{});
+        for (const auto &cont_id : input_ids) {
+            U64 prompt_cnt = prompt_find_result.cnt;
+            if (prompt_cnt == 0) {
+                results.push_back(ProbResult{ .prompt_cnt = 0, .cont_cnt = 0, .prob = -1.0 });
+                prefix_ids.push_back(cont_id);
+                continue;
+            }
+
+            prefix_ids.push_back(cont_id);
+            FindResult cont_find_result;
+            if (_version == 4) {
+                cont_find_result = _find(prefix_ids, prompt_find_result.segment_by_shard);
+            } else {
+                assert (_version == 5);
+                cont_find_result = find(prefix_ids);
+            }
+            U64 cont_cnt = cont_find_result.cnt;
+            results.push_back(ProbResult{ .prompt_cnt = prompt_cnt, .cont_cnt = cont_cnt, .prob = (double)cont_cnt / prompt_cnt });
+            prompt_find_result = std::move(cont_find_result);
+        }
+        return results;
+    }
+
+    void prob_sequence_inplace(const vector<T>* const input_ids, vector<ProbResult>* const thread_output) const {
+        *thread_output = prob_sequence(*input_ids);
+    }
+
+    vector<vector<ProbResult>> prob_batched_sequence(const vector<vector<T>>& input_ids_batch) const {
+
+        vector<vector<ProbResult>> results(input_ids_batch.size());
+        vector<thread> threads;
+        threads.reserve(input_ids_batch.size());
+        for (size_t i = 0; i < input_ids_batch.size(); i++) {
+            threads.emplace_back(&Engine::prob_sequence_inplace, this, &input_ids_batch[i], &results[i]);
+        }
+        for (auto &thread : threads) {
+            thread.join();
+        }
+        return results;
+    }
+
     DistResult<T> ntd(const vector<T> prompt_ids, const U64 max_support) const {
 
         auto prompt_find_result = find(prompt_ids);
@@ -822,6 +893,194 @@ public:
             .prob = result.prob,
             .suffix_len = suffix_len,
         };
+    }
+
+    void infgram_prob_inplace(const vector<T>* const prompt_ids, const T cont_id, InfgramProbResult* const thread_output) const {
+        *thread_output = infgram_prob(*prompt_ids, cont_id);
+    }
+
+    vector<InfgramProbResult> infgram_prob_batched(const vector<vector<T>>& prompt_ids_batch, const vector<T>& cont_ids) const {
+
+        assert (prompt_ids_batch.size() == cont_ids.size());
+
+        vector<InfgramProbResult> results(prompt_ids_batch.size());
+        vector<thread> threads;
+        threads.reserve(prompt_ids_batch.size());
+        for (size_t i = 0; i < prompt_ids_batch.size(); i++) {
+            threads.emplace_back(&Engine::infgram_prob_inplace, this, &prompt_ids_batch[i], cont_ids[i], &results[i]);
+        }
+        for (auto &thread : threads) {
+            thread.join();
+        }
+        return results;
+    }
+
+    vector<InfgramProbResult> infgram_prob_sequence(const vector<T>& input_ids) const {
+
+        struct InfgramSequenceState {
+            size_t len;
+            size_t end;
+            FindResult find_result;
+            size_t parent_state_ix;
+            T appended_token;
+            size_t fail_state_ix;
+            bool has_fail_state;
+            unordered_map<T, size_t> next_state_ix_by_token;
+            unordered_map<T, FindResult> ext_find_result_by_token;
+        };
+
+        vector<InfgramProbResult> results;
+        results.reserve(input_ids.size());
+
+        auto root_find_result = find(vector<T>{});
+        vector<InfgramSequenceState> states = {
+            InfgramSequenceState{
+                .len = 0,
+                .end = 0,
+                .find_result = root_find_result,
+                .parent_state_ix = 0,
+                .appended_token = 0,
+                .fail_state_ix = 0,
+                .has_fail_state = true,
+                .next_state_ix_by_token = {},
+                .ext_find_result_by_token = {},
+            },
+        };
+
+        auto get_extension_find_result = [&](const size_t state_ix, const T cont_id) -> FindResult {
+            auto it = states[state_ix].ext_find_result_by_token.find(cont_id);
+            if (it != states[state_ix].ext_find_result_by_token.end()) {
+                return it->second;
+            }
+
+            vector<T> query_ids;
+            query_ids.reserve(states[state_ix].len + 1);
+            if (states[state_ix].len > 0) {
+                size_t start = states[state_ix].end - states[state_ix].len;
+                query_ids.insert(query_ids.end(), input_ids.begin() + start, input_ids.begin() + states[state_ix].end);
+            }
+            query_ids.push_back(cont_id);
+
+            FindResult ext_find_result;
+            if (_version == 4) {
+                ext_find_result = _find(query_ids, states[state_ix].find_result.segment_by_shard);
+            } else {
+                assert (_version == 5);
+                ext_find_result = find(query_ids);
+            }
+            states[state_ix].ext_find_result_by_token.emplace(cont_id, ext_find_result);
+            return ext_find_result;
+        };
+
+        auto get_or_create_extension_state = [&](const size_t state_ix, const T cont_id, const size_t new_end, const FindResult& ext_find_result) -> size_t {
+            auto it = states[state_ix].next_state_ix_by_token.find(cont_id);
+            if (it != states[state_ix].next_state_ix_by_token.end()) {
+                return it->second;
+            }
+
+            size_t new_state_ix = states.size();
+            size_t new_len = states[state_ix].len + 1;
+            states.push_back(InfgramSequenceState{
+                .len = new_len,
+                .end = new_end,
+                .find_result = ext_find_result,
+                .parent_state_ix = state_ix,
+                .appended_token = cont_id,
+                .fail_state_ix = 0,
+                .has_fail_state = (new_len <= 1),
+                .next_state_ix_by_token = {},
+                .ext_find_result_by_token = {},
+            });
+            states[state_ix].next_state_ix_by_token[cont_id] = new_state_ix;
+            return new_state_ix;
+        };
+
+        function<size_t(const size_t, const T, const size_t)> get_next_state_ix;
+        function<size_t(const size_t)> get_fail_state_ix;
+        get_fail_state_ix = [&](const size_t state_ix) -> size_t {
+            if (states[state_ix].has_fail_state) {
+                return states[state_ix].fail_state_ix;
+            }
+            if (states[state_ix].len <= 1) {
+                states[state_ix].fail_state_ix = 0;
+                states[state_ix].has_fail_state = true;
+                return 0;
+            }
+
+            size_t parent_fail_state_ix = get_fail_state_ix(states[state_ix].parent_state_ix);
+            size_t fail_state_ix = get_next_state_ix(parent_fail_state_ix, states[state_ix].appended_token, states[state_ix].end);
+            states[state_ix].fail_state_ix = fail_state_ix;
+            states[state_ix].has_fail_state = true;
+            return fail_state_ix;
+        };
+        get_next_state_ix = [&](const size_t state_ix, const T cont_id, const size_t new_end) -> size_t {
+            auto it = states[state_ix].next_state_ix_by_token.find(cont_id);
+            if (it != states[state_ix].next_state_ix_by_token.end()) {
+                return it->second;
+            }
+
+            auto direct_ext_find_result = get_extension_find_result(state_ix, cont_id);
+            if (direct_ext_find_result.cnt > 0) {
+                return get_or_create_extension_state(state_ix, cont_id, new_end, direct_ext_find_result);
+            }
+
+            size_t cur_state_ix = state_ix;
+            while (cur_state_ix != 0) {
+                cur_state_ix = get_fail_state_ix(cur_state_ix);
+
+                auto cur_it = states[cur_state_ix].next_state_ix_by_token.find(cont_id);
+                if (cur_it != states[cur_state_ix].next_state_ix_by_token.end()) {
+                    states[state_ix].next_state_ix_by_token[cont_id] = cur_it->second;
+                    return cur_it->second;
+                }
+
+                auto cur_ext_find_result = get_extension_find_result(cur_state_ix, cont_id);
+                if (cur_ext_find_result.cnt > 0) {
+                    size_t next_state_ix = get_or_create_extension_state(cur_state_ix, cont_id, new_end, cur_ext_find_result);
+                    states[state_ix].next_state_ix_by_token[cont_id] = next_state_ix;
+                    return next_state_ix;
+                }
+            }
+
+            states[state_ix].next_state_ix_by_token[cont_id] = 0;
+            return 0;
+        };
+
+        size_t active_state_ix = 0;
+        for (size_t i = 0; i < input_ids.size(); i++) {
+            T cont_id = input_ids[i];
+            U64 prompt_cnt = states[active_state_ix].find_result.cnt;
+            auto cont_find_result = get_extension_find_result(active_state_ix, cont_id);
+            U64 cont_cnt = cont_find_result.cnt;
+            results.push_back(InfgramProbResult{
+                .prompt_cnt = prompt_cnt,
+                .cont_cnt = cont_cnt,
+                .prob = prompt_cnt == 0 ? -1.0 : (double)cont_cnt / prompt_cnt,
+                .suffix_len = (U64)states[active_state_ix].len,
+            });
+
+            active_state_ix = get_next_state_ix(active_state_ix, cont_id, i + 1);
+        }
+
+        return results;
+    }
+
+    void infgram_prob_sequence_inplace(const vector<T>* const input_ids, vector<InfgramProbResult>* const thread_output) const {
+        *thread_output = infgram_prob_sequence(*input_ids);
+    }
+
+    vector<vector<InfgramProbResult>> infgram_prob_batched_sequence(const vector<vector<T>>& input_ids_batch) const {
+
+        vector<vector<InfgramProbResult>> results(input_ids_batch.size());
+        vector<thread> threads;
+        threads.reserve(input_ids_batch.size());
+        for (size_t i = 0; i < input_ids_batch.size(); i++) {
+            threads.emplace_back(&Engine::infgram_prob_sequence_inplace, this, &input_ids_batch[i], &results[i]);
+        }
+        for (auto &thread : threads) {
+            thread.join();
+        }
+        return results;
     }
 
     InfgramDistResult<T> infgram_ntd(const vector<T> prompt_ids, const U64 max_support) const {
